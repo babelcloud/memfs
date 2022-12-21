@@ -661,11 +661,11 @@ export class Volume {
       }
     };
 
-    // root.setChild('.', root);
-    // root.getNode().nlink++;
+    root.setChild('.', root);
+    root.getNode().nlink++;
 
-    // root.setChild('..', root);
-    // root.getNode().nlink++;
+    root.setChild('..', root);
+    root.getNode().nlink++;
 
     this.root = root;
   }
@@ -874,6 +874,9 @@ export class Volume {
     }
 
     for (const name in children) {
+      if (name === '.' || name === '..') {
+        continue;
+      }
       isEmpty = false;
 
       const child = link.getChild(name);
