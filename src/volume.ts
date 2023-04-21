@@ -5,7 +5,7 @@ import Stats from './Stats';
 import Dirent from './Dirent';
 import { Buffer, bufferAllocUnsafe, bufferFrom } from './internal/buffer';
 import setImmediate from './setImmediate';
-import process from './process';
+import process, { IProcess } from './process';
 import setTimeoutUnref, { TSetTimeout } from './setTimeoutUnref';
 import { Readable, Writable } from 'stream';
 import { constants } from './constants';
@@ -632,8 +632,11 @@ export class Volume {
     return this.promisesApi;
   }
 
-  constructor(props = {}) {
+  _process: IProcess;
+
+  constructor(props = {}, p?: IProcess) {
     this.props = Object.assign({ Node, Link, File }, props);
+    this._process = p ? p : process;
 
     const root = this.createLink();
     root.setNode(this.createNode(true));
@@ -745,7 +748,7 @@ export class Volume {
 
   // Just link `getLink`, but throws a correct user error, if link to found.
   getLinkOrThrow(filename: string, funcName?: string): Link {
-    const steps = filenameToSteps(filename);
+    const steps = filenameToSteps(filename, this._process.cwd());
     const link = this.getLink(steps);
     if (!link) throw createError(ENOENT, funcName, filename);
     return link;
@@ -753,7 +756,8 @@ export class Volume {
 
   // Just like `getLink`, but also dereference/resolves symbolic links.
   getResolvedLink(filenameOrSteps: string | string[]): Link | null {
-    let steps: string[] = typeof filenameOrSteps === 'string' ? filenameToSteps(filenameOrSteps) : filenameOrSteps;
+    let steps: string[] =
+      typeof filenameOrSteps === 'string' ? filenameToSteps(filenameOrSteps, this._process.cwd()) : filenameOrSteps;
 
     let link: Link | undefined = this.root;
     let i = 0;
@@ -807,7 +811,8 @@ export class Volume {
   }
 
   private getLinkParentAsDirOrThrow(filenameOrSteps: string | string[], funcName?: string): Link {
-    const steps = filenameOrSteps instanceof Array ? filenameOrSteps : filenameToSteps(filenameOrSteps);
+    const steps =
+      filenameOrSteps instanceof Array ? filenameOrSteps : filenameToSteps(filenameOrSteps, this._process.cwd());
     const link = this.getLinkParent(steps);
     if (!link) throw createError(ENOENT, funcName, sep + steps.join(sep));
     if (!link.getNode().isDirectory()) throw createError(ENOTDIR, funcName, sep + steps.join(sep));
@@ -930,7 +935,7 @@ export class Volume {
     return json;
   }
 
-  fromJSON(json: DirectoryJSON, cwd: string = process.cwd()) {
+  fromJSON(json: DirectoryJSON, cwd: string = this._process.cwd()) {
     for (let filename in json) {
       const data = json[filename];
 
@@ -1012,7 +1017,7 @@ export class Volume {
     modeNum: number | undefined,
     resolveSymlinks: boolean = true,
   ): File {
-    const steps = filenameToSteps(filename);
+    const steps = filenameToSteps(filename, this._process.cwd());
     let link: Link | null = resolveSymlinks ? this.getResolvedLink(steps) : this.getLink(steps);
 
     if (link && flagsNum & O_EXCL) throw createError(EEXIST, 'open', filename);
@@ -1117,7 +1122,7 @@ export class Volume {
 
     // This `if` branch is from Node.js
     if (length === 0) {
-      return process.nextTick(() => {
+      return this._process.nextTick(() => {
         if (callback) callback(null, 0, buffer);
       });
     }
@@ -1142,7 +1147,7 @@ export class Volume {
     if (userOwnsFd) fd = id as number;
     else {
       const filename = pathToFilename(id as PathLike);
-      const steps = filenameToSteps(filename);
+      const steps = filenameToSteps(filename, this._process.cwd());
       const link: Link | null = this.getResolvedLink(steps);
 
       if (link) {
@@ -1357,11 +1362,11 @@ export class Volume {
   }
 
   private linkBase(filename1: string, filename2: string) {
-    const steps1 = filenameToSteps(filename1);
+    const steps1 = filenameToSteps(filename1, this._process.cwd());
     const link1 = this.getLink(steps1);
     if (!link1) throw createError(ENOENT, 'link', filename1, filename2);
 
-    const steps2 = filenameToSteps(filename2);
+    const steps2 = filenameToSteps(filename2, this._process.cwd());
 
     // Check new link directory exists.
     const dir2 = this.getLinkParent(steps2);
@@ -1435,7 +1440,7 @@ export class Volume {
   }
 
   private unlinkBase(filename: string) {
-    const steps = filenameToSteps(filename);
+    const steps = filenameToSteps(filename, this._process.cwd());
     const link = this.getLink(steps);
     if (!link) throw createError(ENOENT, 'unlink', filename);
 
@@ -1465,7 +1470,7 @@ export class Volume {
   }
 
   private symlinkBase(targetFilename: string, pathFilename: string): Link {
-    const pathSteps = filenameToSteps(pathFilename);
+    const pathSteps = filenameToSteps(pathFilename, this._process.cwd());
 
     // Check if directory exists, where we about to create a symlink.
     const dirLink = this.getLinkParent(pathSteps);
@@ -1478,7 +1483,7 @@ export class Volume {
 
     // Create symlink.
     const symlink: Link = dirLink.createChild(name);
-    symlink.getNode().makeSymlink(filenameToSteps(targetFilename));
+    symlink.getNode().makeSymlink(filenameToSteps(targetFilename, this._process.cwd()));
     return symlink;
   }
 
@@ -1499,7 +1504,7 @@ export class Volume {
   }
 
   private realpathBase(filename: string, encoding: TEncodingExtended | undefined): TDataOut {
-    const steps = filenameToSteps(filename);
+    const steps = filenameToSteps(filename, this._process.cwd());
     const realLink = this.getResolvedLink(steps);
     if (!realLink) throw createError(ENOENT, 'realpath', filename);
 
@@ -1523,7 +1528,7 @@ export class Volume {
   private lstatBase(filename: string, bigint: true, throwIfNoEntry: false): Stats<bigint> | undefined;
   private lstatBase(filename: string, bigint: false, throwIfNoEntry: false): Stats<number> | undefined;
   private lstatBase(filename: string, bigint = false, throwIfNoEntry = false): Stats | undefined {
-    const link = this.getLink(filenameToSteps(filename));
+    const link = this.getLink(filenameToSteps(filename, this._process.cwd()));
 
     if (link) {
       return Stats.build(link.getNode(), bigint);
@@ -1560,7 +1565,7 @@ export class Volume {
   private statBase(filename: string, bigint: true, throwIfNoEntry: false): Stats<bigint> | undefined;
   private statBase(filename: string, bigint: false, throwIfNoEntry: false): Stats<number> | undefined;
   private statBase(filename: string, bigint = false, throwIfNoEntry = true): Stats | undefined {
-    const link = this.getResolvedLink(filenameToSteps(filename));
+    const link = this.getResolvedLink(filenameToSteps(filename, this._process.cwd()));
 
     if (link) {
       return Stats.build(link.getNode(), bigint);
@@ -1616,12 +1621,12 @@ export class Volume {
   }
 
   private renameBase(oldPathFilename: string, newPathFilename: string) {
-    const link = this.getLink(filenameToSteps(oldPathFilename));
+    const link = this.getLink(filenameToSteps(oldPathFilename, this._process.cwd()));
     if (!link) throw createError(ENOENT, 'rename', oldPathFilename, newPathFilename);
 
     // TODO: Check if it is directory, if non-empty, we cannot move it, right?
 
-    const newPathSteps = filenameToSteps(newPathFilename);
+    const newPathSteps = filenameToSteps(newPathFilename, this._process.cwd());
 
     // Check directory exists for the new location.
     const newPathDirLink = this.getLinkParent(newPathSteps);
@@ -1732,7 +1737,7 @@ export class Volume {
   }
 
   private readdirBase(filename: string, options: IReaddirOptions): TDataOut[] | Dirent[] {
-    const steps = filenameToSteps(filename);
+    const steps = filenameToSteps(filename, this._process.cwd());
     const link: Link | null = this.getResolvedLink(steps);
     if (!link) throw createError(ENOENT, 'readdir', filename);
 
@@ -1911,7 +1916,7 @@ export class Volume {
   }
 
   private mkdirBase(filename: string, modeNum: number) {
-    const steps = filenameToSteps(filename);
+    const steps = filenameToSteps(filename, this._process.cwd());
 
     // This will throw if user tries to create root dir `fs.mkdirSync('/')`.
     if (!steps.length) {
@@ -2741,7 +2746,7 @@ export class FSWatcher extends EventEmitter {
     encoding: BufferEncoding = ENCODING_UTF8,
   ) {
     this._filename = pathToFilename(path);
-    this._steps = filenameToSteps(this._filename);
+    this._steps = filenameToSteps(this._filename, this._vol._process.cwd());
     this._filenameEncoded = strToEncoding(this._filename);
     // this._persistent = persistent;
     this._recursive = recursive;

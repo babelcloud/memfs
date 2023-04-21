@@ -9,6 +9,7 @@ import {
   IWriteStream,
   DirectoryJSON,
 } from './volume';
+export { IProcess } from './process';
 import { IPromisesAPI } from './promises';
 const { fsSyncMethods, fsAsyncMethods } = require('fs-monkey/lib/util/lists');
 import { constants } from './constants';

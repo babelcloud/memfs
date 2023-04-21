@@ -25,6 +25,7 @@ export class Node extends EventEmitter {
   private _atime = new Date();
   private _mtime = new Date();
   private _ctime = new Date();
+  readonly birthtime = new Date();
 
   // data: string = '';
   buf: Buffer;
